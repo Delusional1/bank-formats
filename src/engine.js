@@ -195,7 +195,13 @@
   // transactions -> QBO (OFX 1.0.2 SGML, Web Connect) string that QuickBooks imports.
   // acct: { bankId, acctId, acctType:'CHECKING'|'SAVINGS'|'CREDITLINE',
   //         org, fid, intuBid, curdef:'USD', balance? }
-  function transactionsToQbo(txns, acct) {
+  // The OFX family shares one body. The flavours differ only by Intuit's
+  // extension tags, so they share one emitter:
+  //   'ofx' — plain OFX 1.0.2. What Xero, Sage, Wave, FreeAgent, MYOB accept.
+  //   'qbo' — OFX + <INTU.BID>. QuickBooks Web Connect; QB rejects it without one.
+  //   'qfx' — OFX + <INTU.BID> (+ optional <INTU.USERID>). Quicken Web Connect,
+  //           which imports like a native bank feed rather than a manual file.
+  function emitOfxFamily(txns, acct, flavor) {
     acct = acct || {};
     var org = acct.org || 'Bank';
     var fid = acct.fid || '0000';
@@ -231,7 +237,9 @@
     L.push('<DTSERVER>' + stamp);
     L.push('<LANGUAGE>ENG');
     L.push('<FI><ORG>' + ofxEscape(org) + '<FID>' + ofxEscape(fid) + '</FI>');
-    L.push('<INTU.BID>' + ofxEscape(bid));
+    // Intuit-only. Emitting it in a plain .ofx makes some non-Intuit importers baulk.
+    if (flavor !== 'ofx') L.push('<INTU.BID>' + ofxEscape(bid));
+    if (flavor === 'qfx' && acct.intuUserId) L.push('<INTU.USERID>' + ofxEscape(acct.intuUserId));
     L.push('</SONRS></SIGNONMSGSRSV1>');
 
     var isCard = acctType === 'CREDITLINE' || acctType === 'CREDITCARD';
@@ -276,6 +284,18 @@
     L.push('</OFX>');
     return L.join('\n');
   }
+
+  // QuickBooks Web Connect. `intuBid` must match Intuit's id for the institution —
+  // it is the usual reason an otherwise valid file is silently rejected.
+  function transactionsToQbo(txns, acct) { return emitOfxFamily(txns, acct, 'qbo'); }
+
+  // Plain OFX — the format the cloud ledgers (Xero, Sage, Wave, FreeAgent, MYOB,
+  // NetSuite) import. Deliberately carries no Intuit tags.
+  function transactionsToOfx(txns, acct) { return emitOfxFamily(txns, acct, 'ofx'); }
+
+  // Quicken Web Connect. Same container as QBO; Quicken reads it as a bank feed
+  // instead of a manual import, which QIF cannot do.
+  function transactionsToQfx(txns, acct) { return emitOfxFamily(txns, acct, 'qfx'); }
 
   // ------------------------------------------------------------ OFX parser ---
 
@@ -504,7 +524,8 @@
   var PARSERS = { csv: csvToTransactions, ofx: ofxToTransactions, qbo: ofxToTransactions,
     qfx: ofxToTransactions, qif: qifToTransactions, iif: iifToTransactions };
   var EMITTERS = { qbo: transactionsToQbo, csv: transactionsToCsv,
-    qif: transactionsToQif, iif: transactionsToIif };
+    qif: transactionsToQif, iif: transactionsToIif,
+    ofx: transactionsToOfx, qfx: transactionsToQfx };
 
   // High-level dispatch used by pages: convert({from,to,input,parseOpts,emitOpts})
   function convert(cfg) {
@@ -522,6 +543,8 @@
     guessMapping: guessMapping,
     csvToTransactions: csvToTransactions,
     transactionsToQbo: transactionsToQbo,
+    transactionsToOfx: transactionsToOfx,
+    transactionsToQfx: transactionsToQfx,
     ofxToTransactions: ofxToTransactions,
     transactionsToCsv: transactionsToCsv,
     qifToTransactions: qifToTransactions,

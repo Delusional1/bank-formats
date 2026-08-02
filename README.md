@@ -5,7 +5,7 @@ Read and write the file formats banks and accounting software actually use — *
 - **Zero dependencies.** One file, no transitive supply chain.
 - **Node and browser.** The same UMD build runs in both; no bundler required.
 - **Typed.** Ships `index.d.ts`.
-- **Tested.** 56 tests covering parsing, emitting, and round-trips against real fixture files.
+- **Tested.** 100 tests covering parsing, emitting, round-trips, and every claim in this README.
 
 ```bash
 npm install bank-formats
@@ -78,16 +78,26 @@ Two decisions worth knowing about, because they cause most of the bugs in this s
 
 ## Supported conversions
 
-Parse from **CSV, OFX, QBO, QFX, QIF, IIF**. Emit to **QBO, CSV, QIF, IIF**.
+Parse from **CSV, OFX, QBO, QFX, QIF, IIF**. Emit to **QBO, QFX, OFX, CSV, QIF, IIF**.
 
-| | → QBO | → CSV | → QIF | → IIF |
-|---|:---:|:---:|:---:|:---:|
-| **CSV →** | ✓ | ✓ | ✓ | ✓ |
-| **OFX / QBO / QFX →** | ✓ | ✓ | ✓ | ✓ |
-| **QIF →** | ✓ | ✓ | ✓ | ✓ |
-| **IIF →** | ✓ | ✓ | ✓ | ✓ |
+| | → QBO | → QFX | → OFX | → CSV | → QIF | → IIF |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **CSV →** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **OFX / QBO / QFX →** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **QIF →** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **IIF →** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-OFX, QBO and QFX share a container format, so one parser reads all three.
+OFX, QBO and QFX share a container format, so one parser reads all three — and one emitter
+writes all three. They differ only by Intuit's extension tags:
+
+| Flavour | `<INTU.BID>` | Who reads it |
+|---|:---:|---|
+| `.ofx` | no | Xero, Sage, Wave, FreeAgent, MYOB, NetSuite |
+| `.qbo` | yes | QuickBooks Web Connect (Desktop & Online) |
+| `.qfx` | yes | Quicken Web Connect |
+
+Emitting `<INTU.BID>` in a plain `.ofx` makes some non-Intuit importers baulk, so
+`transactionsToOfx` deliberately leaves it out.
 
 ## CSV input
 
@@ -134,6 +144,8 @@ If QuickBooks rejects an otherwise valid file, **`intuBid` is almost always the 
 | `ofxToTransactions(text)` | OFX/QBO/QFX → transactions plus account `meta` |
 | `qifToTransactions(text)` / `iifToTransactions(text)` | Quicken / QuickBooks Desktop → transactions |
 | `transactionsToQbo(txns, acct)` | → QuickBooks Web Connect |
+| `transactionsToQfx(txns, acct)` | → Quicken Web Connect; imports as a feed, not a manual file |
+| `transactionsToOfx(txns, acct)` | → plain OFX for Xero/Sage/Wave/FreeAgent/MYOB |
 | `transactionsToCsv(txns, opts)` | → CSV, with column and date-format control |
 | `transactionsToQif(txns)` / `transactionsToIif(txns)` | → Quicken / QuickBooks Desktop |
 | `parseAmount(raw)` | `(1,234.56)`, `1.234,56`, `$1,234.56` → number |

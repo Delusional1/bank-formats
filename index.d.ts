@@ -35,6 +35,10 @@ export interface AccountMeta {
   acctType?: 'CHECKING' | 'SAVINGS' | 'CREDITLINE' | 'MONEYMRKT' | string;
   /** ISO currency code. Defaults to `USD`. */
   curdef?: string;
+  /** QFX only, optional: emitted as `<INTU.USERID>`. */
+  intuUserId?: string;
+  /** Closing balance. Emitted as `<LEDGERBAL>` when present. */
+  balance?: number | string;
 }
 
 /** Which CSV column index holds which field. `-1` means "not present". */
@@ -81,7 +85,7 @@ export interface CsvEmitOptions {
 }
 
 export type SourceFormat = 'csv' | 'ofx' | 'qbo' | 'qfx' | 'qif' | 'iif';
-export type TargetFormat = 'qbo' | 'csv' | 'qif' | 'iif';
+export type TargetFormat = 'qbo' | 'csv' | 'qif' | 'iif' | 'ofx' | 'qfx';
 
 export interface ConvertConfig {
   from: SourceFormat;
@@ -111,6 +115,10 @@ export declare function transactionsToCsv(txns: Transaction[], opts?: CsvEmitOpt
 export declare function ofxToTransactions(text: string, opts?: Record<string, unknown>): ParseResult;
 /** Emits QuickBooks Web Connect (.qbo). Set `intuBid` if QuickBooks rejects the file. */
 export declare function transactionsToQbo(txns: Transaction[], acct?: AccountMeta): string;
+/** Emits plain OFX — no Intuit tags. What Xero, Sage, Wave, FreeAgent, MYOB and NetSuite import. */
+export declare function transactionsToOfx(txns: Transaction[], acct?: AccountMeta): string;
+/** Emits Quicken Web Connect (.qfx). Imports as a bank feed rather than a manual file. */
+export declare function transactionsToQfx(txns: Transaction[], acct?: AccountMeta): string;
 
 export declare function qifToTransactions(text: string, opts?: Record<string, unknown>): ParseResult;
 export declare function transactionsToQif(txns: Transaction[], opts?: Record<string, unknown>): string;
@@ -135,6 +143,8 @@ declare const _default: {
   transactionsToCsv: typeof transactionsToCsv;
   ofxToTransactions: typeof ofxToTransactions;
   transactionsToQbo: typeof transactionsToQbo;
+  transactionsToOfx: typeof transactionsToOfx;
+  transactionsToQfx: typeof transactionsToQfx;
   qifToTransactions: typeof qifToTransactions;
   transactionsToQif: typeof transactionsToQif;
   iifToTransactions: typeof iifToTransactions;

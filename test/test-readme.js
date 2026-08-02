@@ -55,7 +55,7 @@ const inputs = { csv: csvText, ofx: ofxText,
   iif: fs.readFileSync(F + 'sample.iif','utf8') };
 let cells = 0;
 for (const from of Object.keys(inputs)) {
-  for (const to of ['qbo','csv','qif','iif']) {
+  for (const to of ['qbo','qfx','ofx','csv','qif','iif']) {
     try {
       const o = bank.convert({ from, to, input: inputs[from], parseOpts:{dateOrder:'MDY'} });
       if (o.output && o.output.length > 10) cells++;
@@ -63,7 +63,16 @@ for (const from of Object.keys(inputs)) {
     } catch (e) { bad++; console.log('  FAIL  table cell ' + from + '->' + to + ' -> ' + e.message); }
   }
 }
-t('all 24 documented conversions produce output', cells === 24, cells + '/24');
+t('all 36 documented conversions produce output', cells === 36, cells + '/36');
+
+// The README's flavour table: only .ofx omits INTU.BID.
+const acct = { org:'Chase', fid:'10898', intuBid:'10898', bankId:'021000021', acctId:'1234567' };
+const tx = bank.csvToTransactions(csvText, { dateOrder:'MDY' }).transactions;
+t('README: .ofx omits INTU.BID', bank.transactionsToOfx(tx, acct).indexOf('INTU.BID') === -1);
+t('README: .qbo carries INTU.BID', bank.transactionsToQbo(tx, acct).indexOf('<INTU.BID>') !== -1);
+t('README: .qfx carries INTU.BID', bank.transactionsToQfx(tx, acct).indexOf('<INTU.BID>') !== -1);
+t('README: transactionsToOfx/Qfx are exported',
+  typeof bank.transactionsToOfx === 'function' && typeof bank.transactionsToQfx === 'function');
 
 // VERSION documented in package
 t('VERSION exported', typeof bank.VERSION === 'string', bank.VERSION);

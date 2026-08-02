@@ -126,5 +126,40 @@ ok('convert csv->qif works', /^!Type:Bank/.test(Engine.convert({ from: 'csv', to
 ok('convert csv->iif works', Engine.convert({ from: 'csv', to: 'iif', input: csv, parseOpts: { dateOrder: 'MDY' } }).output.indexOf('!TRNS\t') !== -1);
 ok('convert qif->qbo works', Engine.convert({ from: 'qif', to: 'qbo', input: qif }).output.indexOf('<STMTTRN>') !== -1);
 
+// --- OFX family: same container, distinguished only by the Intuit tags ---
+var acct = { org: 'Chase', fid: '10898', intuBid: '10898', bankId: '021000021', acctId: '1234567' };
+var ofxOut = Engine.transactionsToOfx(txns, acct);
+var qboOut = Engine.transactionsToQbo(txns, acct);
+var qfxOut = Engine.transactionsToQfx(txns, acct);
+
+ok('OFX emits an OFX header', /^OFXHEADER:100/.test(ofxOut));
+ok('OFX omits INTU.BID (non-Intuit importers reject it)', ofxOut.indexOf('INTU.BID') === -1);
+ok('QBO keeps INTU.BID', qboOut.indexOf('<INTU.BID>10898') !== -1);
+ok('QFX keeps INTU.BID', qfxOut.indexOf('<INTU.BID>10898') !== -1);
+ok('QFX omits INTU.USERID unless asked', qfxOut.indexOf('INTU.USERID') === -1);
+ok('QFX emits INTU.USERID when supplied',
+  Engine.transactionsToQfx(txns, Object.assign({ intuUserId: 'u99' }, acct)).indexOf('<INTU.USERID>u99') !== -1);
+// The only difference between the three should be those tags.
+ok('OFX body matches QBO minus the Intuit line',
+  ofxOut.split('\n').filter(function (l) { return l.indexOf('INTU.') === -1; }).join('\n') ===
+  qboOut.split('\n').filter(function (l) { return l.indexOf('INTU.') === -1; }).join('\n'));
+
+// Round-trip: every flavour must parse back to the same transactions.
+['ofx', 'qbo', 'qfx'].forEach(function (f) {
+  var emitted = f === 'ofx' ? ofxOut : (f === 'qbo' ? qboOut : qfxOut);
+  var back = Engine.ofxToTransactions(emitted);
+  ok(f.toUpperCase() + ' round-trips transaction count', back.transactions.length === txns.length, back.transactions.length);
+  ok(f.toUpperCase() + ' round-trips amounts to the cent',
+    back.transactions.every(function (t, i) { return t.amount === txns[i].amount; }));
+  ok(f.toUpperCase() + ' round-trips dates', back.transactions.every(function (t, i) { return t.date === txns[i].date; }));
+});
+
+ok('convert csv->ofx works', /OFXHEADER/.test(Engine.convert({ from: 'csv', to: 'ofx', input: csv, parseOpts: { dateOrder: 'MDY' } }).output));
+ok('convert csv->qfx works', /OFXHEADER/.test(Engine.convert({ from: 'csv', to: 'qfx', input: csv, parseOpts: { dateOrder: 'MDY' } }).output));
+ok('convert qbo->ofx strips Intuit tags',
+  Engine.convert({ from: 'qbo', to: 'ofx', input: qboOut }).output.indexOf('INTU.') === -1);
+ok('emitters registry exposes ofx + qfx',
+  typeof Engine.emitters.ofx === 'function' && typeof Engine.emitters.qfx === 'function');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
