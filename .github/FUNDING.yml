@@ -1,0 +1,6 @@
+# Renders a "Sponsor" button on the repo. Uncomment a line once that account
+# exists — a link to an unconfigured account renders as a dead button.
+github: [Delusional1]
+# ko_fi: your-handle
+# buy_me_a_coffee: your-handle
+# custom: ["https://getstatementconvert.com"]
