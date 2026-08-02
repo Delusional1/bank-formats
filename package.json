@@ -1,0 +1,57 @@
+{
+  "name": "bank-formats",
+  "version": "0.1.0",
+  "description": "Zero-dependency reader and writer for bank and accounting file formats — OFX, QBO, QFX, QIF, IIF and CSV. Works in Node and the browser.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./src/engine.js": "./src/engine.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src/engine.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/test-engine.js && node test/test-readme.js"
+  },
+  "keywords": [
+    "ofx",
+    "qbo",
+    "qfx",
+    "qif",
+    "iif",
+    "csv",
+    "bank",
+    "bank-statement",
+    "quickbooks",
+    "quicken",
+    "web-connect",
+    "accounting",
+    "bookkeeping",
+    "parser",
+    "converter",
+    "finance"
+  ],
+  "author": "GetStatementConvert",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Delusional1/bank-formats.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Delusional1/bank-formats/issues"
+  },
+  "homepage": "https://github.com/Delusional1/bank-formats#readme",
+  "engines": {
+    "node": ">=14"
+  },
+  "sideEffects": false
+}
