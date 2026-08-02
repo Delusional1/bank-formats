@@ -22,6 +22,32 @@
 
   function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
+  // On a bank account the amount is money moving in or out, so a negative is a
+  // debit. On a CARD the balance is money owed and the internal sign is inverted
+  // (a purchase raises the balance, so it is positive) — meaning the same rule
+  // would label every purchase CREDIT. It has to flip with the account type.
+  function typeFor(amount, isCard) {
+    var neg = Number(amount) < 0;
+    return isCard ? (neg ? 'CREDIT' : 'DEBIT') : (neg ? 'DEBIT' : 'CREDIT');
+  }
+  // Which of the two split columns a transaction belongs in. Keyed off `type`
+  // rather than the sign, because on a card the sign is inverted (a purchase is
+  // positive so the transactions reconcile against a debt balance) and reading
+  // the sign directly puts every purchase in the Credit column. `type` is set
+  // card-aware upstream, so it is the semantic truth; the sign is the fallback
+  // for transactions that carry no type.
+  function isDebitSide(t) {
+    var ty = String((t && t.type) || '').toUpperCase();
+    if (ty === 'DEBIT') return true;
+    if (ty === 'CREDIT') return false;
+    return Number(t && t.amount) < 0;
+  }
+
+  function looksLikeCard(t) {
+    t = String(t || '').toUpperCase();
+    return t === 'CREDITLINE' || t === 'CREDITCARD' || t === 'CARD';
+  }
+
   // Escape the few chars that trip up QuickBooks' OFX/SGML import.
   function ofxEscape(s) {
     return String(s == null ? '' : s)
@@ -32,15 +58,50 @@
 
   // Parse a money string into a signed Number.
   //   "$1,234.56" -> 1234.56 ; "(45.00)" -> -45.00 ; "-12.3" -> -12.3
+  /*
+   * Amount parsing across number conventions, which is where silent corruption
+   * lives. "1.234,56" is European for 1234.56; stripping everything but digits
+   * and dots turns it into 1.23456 — a thousand times wrong, and wrong quietly.
+   *
+   * The rule: whichever of . or , appears LAST is the decimal separator, and
+   * everything else is grouping. When only one kind appears it is ambiguous —
+   * "1,234" is 1234 and "1,23" is 1.23 — so the group length decides: three
+   * digits means grouping, one or two means a decimal. Spaces and NBSP are
+   * always grouping (French), and Indian "1,00,000.00" falls out for free
+   * because grouping is simply discarded rather than assumed to be in threes.
+   */
   function parseAmount(raw) {
     if (raw == null) return NaN;
     var s = String(raw).trim();
     if (s === '') return NaN;
     var neg = false;
     if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); } // (123) accounting negative
-    s = s.replace(/[^0-9.\-]/g, ''); // strip $, commas, spaces, currency codes
-    if (s === '' || s === '-' || s === '.') return NaN;
-    var n = parseFloat(s);
+    if (/-/.test(s)) neg = true;                                  // leading or trailing minus
+    // Keep only digits and the two separator characters; spaces/NBSP are grouping.
+    s = s.replace(/[^0-9.,]/g, '');
+    if (s === '' || s === '.' || s === ',') return NaN;
+
+    var lastDot = s.lastIndexOf('.'), lastComma = s.lastIndexOf(',');
+    var dec = -1;
+    if (lastDot >= 0 && lastComma >= 0) {
+      dec = Math.max(lastDot, lastComma);            // both present: the later one wins
+    } else if (lastDot >= 0 || lastComma >= 0) {
+      var only = lastDot >= 0 ? lastDot : lastComma;
+      var ch = s.charAt(only);
+      var groupLen = s.length - only - 1;
+      var occurrences = s.split(ch).length - 1;
+      // Several of the same separator can only be grouping (1,234,567).
+      dec = (occurrences === 1 && groupLen !== 3) ? only : -1;
+    }
+
+    var intPart, fracPart = '';
+    if (dec >= 0) { intPart = s.slice(0, dec); fracPart = s.slice(dec + 1); }
+    else { intPart = s; }
+    intPart = intPart.replace(/[.,]/g, '');
+    fracPart = fracPart.replace(/[.,]/g, '');
+    if (intPart === '' && fracPart === '') return NaN;
+
+    var n = parseFloat((intPart || '0') + (fracPart ? '.' + fracPart : ''));
     if (isNaN(n)) return NaN;
     return neg ? -Math.abs(n) : n;
   }
@@ -263,10 +324,15 @@
     L.push('<DTEND>' + dtend);
 
     txns.forEach(function (t) {
+      // OFX card files state a purchase as a NEGATIVE TRNAMT — the opposite of the
+      // internal sign, which is chosen so the transactions reconcile against a
+      // balance that represents debt. Without this flip, QuickBooks imports every
+      // purchase on a card statement as money received.
+      var amt = isCard ? -Number(t.amount) : Number(t.amount);
       L.push('<STMTTRN>');
-      L.push('<TRNTYPE>' + (t.type || (t.amount < 0 ? 'DEBIT' : 'CREDIT')));
+      L.push('<TRNTYPE>' + (t.type || typeFor(t.amount, isCard)));
       L.push('<DTPOSTED>' + t.date + '120000');
-      L.push('<TRNAMT>' + t.amount.toFixed(2));
+      L.push('<TRNAMT>' + amt.toFixed(2));
       L.push('<FITID>' + ofxEscape(t.fitid));
       if (t.checknum) L.push('<CHECKNUM>' + ofxEscape(t.checknum));
       L.push('<NAME>' + ofxEscape((t.description || '').slice(0, 32)));
@@ -371,7 +437,7 @@
 
   // ------------------------------------------------------------ CSV emitter ---
 
-  var CSV_LABELS = { date: 'Date', description: 'Description', amount: 'Amount',
+  var CSV_LABELS = { date: 'Date', description: 'Description', amount: 'Amount', currency: 'Currency',
     type: 'Type', checknum: 'Check #', memo: 'Memo', fitid: 'FITID' };
 
   function csvCell(v, delim) {
@@ -410,8 +476,10 @@
         if (c === 'date') row.push(fmtDateOut(t.date, fmt));
         else if (c === 'amount') {
           if (split) {
-            row.push(t.amount < 0 ? Math.abs(t.amount).toFixed(2) : '');
-            row.push(t.amount >= 0 ? t.amount.toFixed(2) : '');
+            var deb = isDebitSide(t);
+            var mag = Math.abs(Number(t.amount)).toFixed(2);
+            row.push(deb ? mag : '');
+            row.push(deb ? '' : mag);
           } else row.push(Number(t.amount).toFixed(2));
         } else row.push(t[c] != null ? t[c] : '');
       });
@@ -539,6 +607,7 @@
 
   var Engine = {
     VERSION: VERSION,
+    isDebitSide: isDebitSide,
     parseCsv: parseCsv,
     guessMapping: guessMapping,
     csvToTransactions: csvToTransactions,

@@ -44,6 +44,13 @@ t('guessMapping is exported', typeof bank.guessMapping === 'function');
 // Example 5 — parseAmount / parseDate as documented
 t('parseAmount (1,234.56) -> -1234.56', bank.parseAmount('(1,234.56)') === -1234.56, bank.parseAmount('(1,234.56)'));
 t('parseAmount $1,234.56 -> 1234.56', bank.parseAmount('$1,234.56') === 1234.56, bank.parseAmount('$1,234.56'));
+// The API table claims "1.234,56" support. It did not have it — a false claim
+// shipped to npm because this suite checked the other two examples on that line
+// and not this one. Every documented format is now covered.
+t('parseAmount 1.234,56 -> 1234.56 (European)', bank.parseAmount('1.234,56') === 1234.56, bank.parseAmount('1.234,56'));
+t('parseAmount 1 234,56 -> 1234.56 (French)', bank.parseAmount('1 234,56') === 1234.56, bank.parseAmount('1 234,56'));
+t('parseAmount 1,00,000.00 -> 100000 (Indian)', bank.parseAmount('1,00,000.00') === 100000, bank.parseAmount('1,00,000.00'));
+t('parseAmount 5,000,000 -> 5000000 (no minor unit)', bank.parseAmount('5,000,000') === 5000000, bank.parseAmount('5,000,000'));
 t('parseDate DMY', bank.parseDate('01/02/2026', 'DMY') === '20260201', bank.parseDate('01/02/2026', 'DMY'));
 t('parseDate MDY', bank.parseDate('01/02/2026', 'MDY') === '20260102', bank.parseDate('01/02/2026', 'MDY'));
 

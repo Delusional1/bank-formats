@@ -76,6 +76,8 @@ Two decisions worth knowing about, because they cause most of the bugs in this s
 
 **Amounts are signed.** Formats disagree wildly: some use one signed column, some separate debit and credit columns, some make debits positive. `csvToTransactions` handles all three via `amountMode` and `invert`, and everything downstream sees one convention.
 
+**Number formats disagree too, and getting it wrong is quiet.** `1.234,56` is European for 1234.56 — strip everything but digits and dots and you get 1.23456, a thousandfold error that still looks like a number. `parseAmount` decides by position: whichever of `.` or `,` appears **last** is the decimal separator, and a lone separator with a three-digit tail is grouping. So `1,234` is 1234, `1,23` is 1.23, and Indian `1,00,000.00` works without assuming groups come in threes.
+
 ## Supported conversions
 
 Parse from **CSV, OFX, QBO, QFX, QIF, IIF**. Emit to **QBO, QFX, OFX, CSV, QIF, IIF**.
@@ -148,7 +150,7 @@ If QuickBooks rejects an otherwise valid file, **`intuBid` is almost always the 
 | `transactionsToOfx(txns, acct)` | → plain OFX for Xero/Sage/Wave/FreeAgent/MYOB |
 | `transactionsToCsv(txns, opts)` | → CSV, with column and date-format control |
 | `transactionsToQif(txns)` / `transactionsToIif(txns)` | → Quicken / QuickBooks Desktop |
-| `parseAmount(raw)` | `(1,234.56)`, `1.234,56`, `$1,234.56` → number |
+| `parseAmount(raw)` | `1,234.56`, `1.234,56`, `1 234,56`, `1,00,000.00`, `(37.50)`, `$1,234.56` → number |
 | `parseDate(raw, order)` | Any common form → `YYYYMMDD` |
 | `guessMapping(headers)` | Header row → column indices |
 | `parsers` / `emitters` | The dispatch tables, for building your own UI |
