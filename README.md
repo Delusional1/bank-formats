@@ -137,6 +137,44 @@ bank.transactionsToQbo(transactions, {
 
 If QuickBooks rejects an otherwise valid file, **`intuBid` is almost always the culprit** — it must match Intuit's id for that institution, which is not always the same as `fid`. Getting a plausible-looking `.qbo` that QuickBooks silently refuses is the single most common failure in this whole area, and it is nearly always this field.
 
+## Format quirks that will bite you
+
+These are not exotic edge cases — each one is a real failure that produces a file
+which *looks* correct. They are documented here because they are documented almost
+nowhere else, and every one of them is handled by this library.
+
+**A `.txt` export has no declared separator.** Tab, semicolon, pipe or comma, and
+you cannot tell by looking because a tab and a run of spaces are identical on
+screen. `sniffDelimiter()` scores *consistency* rather than frequency — the right
+separator splits every line into the same number of fields. Counting characters
+picks the comma out of `SMITH, JOHN` every time and is wrong every time.
+
+**Continental European exports need three things, not one.** The separator is a
+semicolon (because the comma is the decimal point), the decimal point is a comma,
+*and* the header row is in the local language. Clear two of the three and the file
+still parses as empty. `guessMapping()` knows German, French, Spanish, Italian,
+Dutch and Portuguese column names alongside the English ones.
+
+**An ISO date is unambiguous, so a declared order must not veto it.** `2024-02-01`
+cannot be anything but the 1st of February — a four-digit leading year is not a
+month or a day. Rejecting it because the caller said `MDY` turns a perfectly
+readable file into "no transactions found". Genuinely ambiguous dates like
+`02/01/2024` still obey the order you pass.
+
+**IIF is double-entry, so summing it gives you zero.** Every `TRNS` line has one or
+more matching `SPL` lines carrying the *opposite* sign. Add up the amount column of
+a raw `.iif` and the two sides cancel — a total of `0.00` means the file is
+balanced, not empty. `iifToTransactions()` returns one row per transaction.
+
+**Excel's calendar contains 29 February 1900, a day that never existed.** It was a
+Lotus 1-2-3 bug that Excel kept for compatibility. The usual serial-to-date
+shortcut (epoch 1899-12-30) is therefore a day early for every date before March
+1900. Rarely reached in practice, and wrong when it is.
+
+**QuickBooks rejects a `.qbo` on `INTU.BID` before it reads a single transaction.**
+See the section above — and note the id is not printed anywhere on a bank
+statement, so it cannot be derived from one. Ask the user.
+
 ## API
 
 | Function | Purpose |
@@ -152,7 +190,9 @@ If QuickBooks rejects an otherwise valid file, **`intuBid` is almost always the 
 | `transactionsToQif(txns)` / `transactionsToIif(txns)` | → Quicken / QuickBooks Desktop |
 | `parseAmount(raw)` | `1,234.56`, `1.234,56`, `1 234,56`, `1,00,000.00`, `(37.50)`, `$1,234.56` → number |
 | `parseDate(raw, order)` | Any common form → `YYYYMMDD` |
-| `guessMapping(headers)` | Header row → column indices |
+| `guessMapping(headers)` | Header row → column indices, English + six European languages |
+| `sniffDelimiter(text)` | Detect `,` `	` `;` or `\|` by column-count consistency |
+| `parsers.txt` | Delimited text with the separator sniffed rather than assumed |
 | `parsers` / `emitters` | The dispatch tables, for building your own UI |
 
 ## What this does not do

@@ -112,11 +112,20 @@
     if (raw == null) return null;
     var s = String(raw).trim();
     if (s === '') return null;
-    // Already ISO-ish YYYYMMDD or YYYY-MM-DD
+    // Already ISO-ish YYYYMMDD or YYYY-MM-DD.
+    //
+    // Accepted whatever `order` says, not only under YMD. A four-digit leading
+    // year is unambiguous — it cannot be a month or a day — so there is nothing
+    // for the caller's preference to disambiguate. Requiring YMD here meant an
+    // ISO-dated CSV returned null on every row under the default MDY, and since
+    // callers that read a file they did not write have no way to know the order
+    // in advance, the whole file came back as "no transactions found" on dates
+    // that were never ambiguous in the first place.
     var iso = s.match(/^(\d{4})[-\/.]?(\d{1,2})[-\/.]?(\d{1,2})/);
-    if (order === 'YMD' && iso) {
+    if (iso && +iso[2] >= 1 && +iso[2] <= 12 && +iso[3] >= 1 && +iso[3] <= 31) {
       return iso[1] + pad2(+iso[2]) + pad2(+iso[3]);
     }
+
     var parts = s.split(/[-\/.]/).map(function (p) { return p.trim(); });
     if (parts.length < 3) {
       // fall back to Date parsing (e.g. "Jul 1, 2026")
@@ -196,22 +205,87 @@
           if (res[j].test(lc[i])) return i;
       return -1;
     }
+    // Non-English headers matter more than they look. A continental European
+    // export already needs the semicolon separator detected and a comma decimal
+    // point parsed — both of which work — and then fails anyway at the header
+    // row, mapping nothing and reporting an empty file. These are the column
+    // names on real German, French, Spanish, Italian, Dutch and Portuguese
+    // exports; the English patterns are unchanged and still matched first.
     return {
-      date: find([/date/, /posted/, /trans.*date/]),
-      description: find([/description/, /details/, /narrative/, /payee/, /memo/, /name/]),
-      amount: find([/^amount$/, /amount/, /value/]),
-      debit: find([/debit/, /withdrawal/, /paid out/, /^out$/]),
-      credit: find([/credit/, /deposit/, /paid in/, /^in$/]),
-      checknum: find([/check/, /cheque/, /ref/])
+      date: find([/date/, /posted/, /trans.*date/,
+        /datum/, /fecha/, /data/, /buchung/, /valuta/]),
+      description: find([/description/, /details/, /narrative/, /payee/, /memo/, /name/,
+        /beschreibung/, /verwendungszweck/, /buchungstext/, /empf/,
+        /descrip/, /libell/, /descrizione/, /omschrijving/, /concepto/, /causale/]),
+      amount: find([/^amount$/, /amount/, /value/,
+        /betrag/, /importe/, /montant/, /importo/, /bedrag/, /umsatz/, /valor/]),
+      debit: find([/debit/, /withdrawal/, /paid out/, /^out$/,
+        /soll/, /d[ée]bito?/, /uscite/, /af$/]),
+      credit: find([/credit/, /deposit/, /paid in/, /^in$/,
+        /haben/, /cr[ée]dito?/, /entrate/, /bij$/]),
+      checknum: find([/check/, /cheque/, /ref/, /beleg/, /scheck/])
     };
   }
 
   // Map parsed CSV -> normalized transactions.
   // opts: { map:{date,description,amount,debit,credit,checknum}, dateOrder,
   //         amountMode:'single'|'split', invert:Boolean }
+  /*
+   * Work out what actually separates the columns.
+   *
+   * "CSV" is a polite fiction. A .txt export from a bank or a legacy ledger is
+   * usually tab-separated; continental European exports are semicolon-separated
+   * because the comma is their decimal point; some systems still emit pipes.
+   * All of them parse as a SINGLE column under a hardcoded comma, which fails
+   * silently — you get one column of untouched text and a mapping that finds no
+   * date, rather than an error anyone can act on.
+   *
+   * The test is consistency, not frequency: the right delimiter is the one that
+   * splits the sample lines into the same number of fields every time, and into
+   * more than one. Frequency alone picks the comma out of "Smith, John" every
+   * time.
+   *
+   * Comma wins ties, so a genuine CSV keeps parsing exactly as it did before
+   * this function existed.
+   */
+  var DELIMS = [',', '\t', ';', '|'];
+  function sniffDelimiter(text, fallback) {
+    var s = String(text || '');
+    if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
+    var lines = s.split(/\r\n|\n|\r/).filter(function (l) { return l.trim() !== ''; }).slice(0, 20);
+    if (!lines.length) return fallback || ',';
+
+    var best = null;
+    DELIMS.forEach(function (d) {
+      // Count fields per line for this candidate, ignoring delimiters inside quotes.
+      var counts = lines.map(function (line) {
+        var n = 1, q = false;
+        for (var i = 0; i < line.length; i++) {
+          var c = line[i];
+          if (c === '"') q = !q;
+          else if (c === d && !q) n++;
+        }
+        return n;
+      });
+      var first = counts[0];
+      if (first < 2) return;                       // one column is not a delimiter
+      var consistent = counts.filter(function (n) { return n === first; }).length;
+      var score = consistent / counts.length;
+      if (score < 0.7) return;                     // ragged: probably not the separator
+      // Prefer the more consistent candidate; on a tie prefer more columns; the
+      // comma is checked first so it wins an exact tie by arriving first.
+      if (!best || score > best.score + 1e-9 ||
+          (Math.abs(score - best.score) < 1e-9 && first > best.cols)) {
+        best = { delim: d, score: score, cols: first };
+      }
+    });
+    return best ? best.delim : (fallback || ',');
+  }
+
   function csvToTransactions(text, opts) {
     opts = opts || {};
-    var parsed = parseCsv(text, opts.delimiter);
+    // No delimiter given means "work it out" rather than "assume comma".
+    var parsed = parseCsv(text, opts.delimiter || sniffDelimiter(text));
     var map = opts.map || guessMapping(parsed.headers);
     var order = opts.dateOrder || 'MDY';
     var mode = opts.amountMode || (map.debit >= 0 || map.credit >= 0 ? 'split' : 'single');
@@ -589,7 +663,11 @@
 
   // ---------------------------------------------------------------- registry ---
 
-  var PARSERS = { csv: csvToTransactions, ofx: ofxToTransactions, qbo: ofxToTransactions,
+  // `txt` is not a format, it is an absence of one — a delimited text export
+  // whose separator nobody wrote down. Same parser, with the delimiter sniffed
+  // instead of assumed.
+  var PARSERS = { csv: csvToTransactions, txt: csvToTransactions,
+    ofx: ofxToTransactions, qbo: ofxToTransactions,
     qfx: ofxToTransactions, qif: qifToTransactions, iif: iifToTransactions };
   var EMITTERS = { qbo: transactionsToQbo, csv: transactionsToCsv,
     qif: transactionsToQif, iif: transactionsToIif,
@@ -609,6 +687,7 @@
     VERSION: VERSION,
     isDebitSide: isDebitSide,
     parseCsv: parseCsv,
+    sniffDelimiter: sniffDelimiter,
     guessMapping: guessMapping,
     csvToTransactions: csvToTransactions,
     transactionsToQbo: transactionsToQbo,
