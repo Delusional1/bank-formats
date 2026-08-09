@@ -1,6 +1,6 @@
 {
   "name": "bank-formats",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Zero-dependency reader and writer for bank and accounting file formats — OFX, QBO, QFX, QIF, IIF and CSV. Works in Node and the browser.",
   "main": "index.js",
   "types": "index.d.ts",

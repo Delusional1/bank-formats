@@ -16,7 +16,10 @@
 (function (global) {
   'use strict';
 
-  var VERSION = '0.1.0';
+  // Kept in sync with package.json by a test, not by hand — it was wrong for
+  // three releases because nothing checked it. Hardcoded rather than read from
+  // package.json because this file is also loaded directly in a browser.
+  var VERSION = '0.3.1';
 
   // ---------------------------------------------------------------- utils ---
 

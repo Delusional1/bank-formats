@@ -83,5 +83,10 @@ t('README: transactionsToOfx/Qfx are exported',
 
 // VERSION documented in package
 t('VERSION exported', typeof bank.VERSION === 'string', bank.VERSION);
+// It was 0.1.0 through three releases: the old assertion only checked the TYPE,
+// so a stale constant passed forever. Published artefacts said the wrong version.
+t('VERSION matches package.json',
+  bank.VERSION === require('../package.json').version,
+  bank.VERSION + ' vs ' + require('../package.json').version);
 console.log('\n' + ok + ' passed, ' + bad + ' failed');
 process.exit(bad ? 1 : 0);
